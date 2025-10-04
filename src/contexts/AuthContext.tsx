@@ -15,7 +15,7 @@ interface AuthContextType {
   user: CustomUser | null;
   loading: boolean;
   signInWithEmail: (email: string, password: string) => Promise<{ user: CustomUser | null; error: Error | null }>;
-  signUpWithEmail: (email: string, password: string, role: 'buyer' | 'seller') => Promise<{ user: CustomUser | null; error: Error | null }>;
+  signUpWithEmail: (email: string, password: string, role: 'buyer' | 'seller', latitude?: number, longitude?: number) => Promise<{ user: CustomUser | null; error: Error | null }>;
   signOut: () => Promise<{ error: Error | null }>;
 }
 
@@ -60,7 +60,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return { user: data.user as CustomUser, error: null };
   };
 
-  const signUpWithEmail = async (email: string, password: string, role: 'buyer' | 'seller') => {
+  const signUpWithEmail = async (email: string, password: string, role: 'buyer' | 'seller', latitude?: number, longitude?: number) => {
     const { data, error } = await supabase.auth.signUp({ 
       email, 
       password,
@@ -75,6 +75,26 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       console.error('Sign-up error:', error);
       return { user: null, error };
     }
+
+    if (data.user) {
+      // Insert into profiles table
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .insert({ 
+          id: data.user.id, 
+          role: role,
+          latitude: latitude || null,
+          longitude: longitude || null,
+        });
+
+      if (profileError) {
+        showError(`Failed to create user profile: ${profileError.message}`);
+        console.error('Profile creation error:', profileError);
+        // Consider rolling back user creation or handling this gracefully
+        return { user: null, error: profileError };
+      }
+    }
+
     showSuccess("Signed up successfully! Please check your email to confirm your account.");
     console.log('Sign-up successful, user:', data.user);
     return { user: data.user as CustomUser, error: null };
