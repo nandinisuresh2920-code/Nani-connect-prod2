@@ -4,18 +4,24 @@ import { useAuth } from '@/contexts/AuthContext';
 import { MadeWithDyad } from "@/components/made-with-dyad";
 
 const Index = () => {
-  const { session, loading } = useAuth();
+  const { user, loading } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
     if (!loading) {
-      if (session) {
-        navigate('/dashboard');
+      if (user) {
+        const userRole = user.user_metadata?.role;
+        if (userRole === 'seller') {
+          navigate('/seller-dashboard');
+        } else {
+          // Default to buyer dashboard if no role or buyer role
+          navigate('/buyer-dashboard');
+        }
       } else {
         navigate('/login');
       }
     }
-  }, [session, loading, navigate]);
+  }, [user, loading, navigate]);
 
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
