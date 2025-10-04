@@ -12,6 +12,7 @@ import { showSuccess, showError } from '@/utils/toast';
 import { supabase } from '@/lib/supabaseClient';
 import { Trash2, Edit } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import ProductImageUpload from '@/components/ProductImageUpload'; // Import the new component
 
 
 interface Product {
@@ -19,15 +20,22 @@ interface Product {
   name: string;
   description: string;
   price: number;
-  image_url?: string; // Changed to image_url to match Supabase schema
+  image_url?: string;
   seller_id: string;
 }
 
-const ProductForm = ({ product, onSubmit, onClose }: { product?: Product; onSubmit: (data: Omit<Product, 'id' | 'seller_id'>) => void; onClose: () => void }) => {
+interface ProductFormProps {
+  product?: Product;
+  onSubmit: (data: Omit<Product, 'id' | 'seller_id'>, imageFile: File | null) => void;
+  onClose: () => void;
+}
+
+const ProductForm = ({ product, onSubmit, onClose }: ProductFormProps) => {
   const [name, setName] = useState(product?.name || '');
   const [description, setDescription] = useState(product?.description || '');
   const [price, setPrice] = useState(product?.price.toString() || '');
-  const [imageUrl, setImageUrl] = useState(product?.image_url || ''); // Changed to imageUrl
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [currentImageUrl, setCurrentImageUrl] = useState<string | undefined>(product?.image_url);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,7 +43,7 @@ const ProductForm = ({ product, onSubmit, onClose }: { product?: Product; onSubm
       showError("Please fill in all required fields.");
       return;
     }
-    onSubmit({ name, description, price: parseFloat(price), image_url: imageUrl }); // Changed to image_url
+    onSubmit({ name, description, price: parseFloat(price), image_url: currentImageUrl }, imageFile);
     onClose();
   };
 
@@ -53,10 +61,11 @@ const ProductForm = ({ product, onSubmit, onClose }: { product?: Product; onSubm
         <Label htmlFor="product-price">Price</Label>
         <Input id="product-price" type="number" value={price} onChange={(e) => setPrice(e.target.value)} required />
       </div>
-      <div>
-        <Label htmlFor="product-image">Image URL (Optional)</Label>
-        <Input id="product-image" type="url" value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} />
-      </div>
+      <ProductImageUpload
+        initialImageUrl={product?.image_url}
+        onFileSelect={setImageFile}
+        onImageUrlChange={setCurrentImageUrl}
+      />
       <Button type="submit" className="w-full">
         {product ? 'Update Product' : 'Add Product'}
       </Button>
@@ -93,6 +102,30 @@ const SellerDashboardPage = () => {
     setProductsLoading(false);
   };
 
+  const uploadImage = async (file: File, productId: string): Promise<string | null> => {
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${productId}.${fileExt}`;
+    const filePath = `${user?.id}/${fileName}`; // Store images under seller's ID
+
+    const { error: uploadError } = await supabase.storage
+      .from('product-images') // Ensure you have a bucket named 'product-images'
+      .upload(filePath, file, {
+        cacheControl: '3600',
+        upsert: true,
+      });
+
+    if (uploadError) {
+      showError(`Image upload failed: ${uploadError.message}`);
+      return null;
+    }
+
+    const { data: publicUrlData } = supabase.storage
+      .from('product-images')
+      .getPublicUrl(filePath);
+
+    return publicUrlData.publicUrl;
+  };
+
   const handleSignOut = async () => {
     const { error } = await signOut();
     if (!error) {
@@ -100,26 +133,70 @@ const SellerDashboardPage = () => {
     }
   };
 
-  const handleAddProduct = async (newProductData: Omit<Product, 'id' | 'seller_id'>) => {
+  const handleAddProduct = async (newProductData: Omit<Product, 'id' | 'seller_id'>, imageFile: File | null) => {
     if (!user) return;
-    const { data, error } = await supabase
+
+    let imageUrl: string | undefined = newProductData.image_url;
+
+    // First, insert the product to get an ID
+    const { data: productInsertData, error: insertError } = await supabase
       .from('products')
-      .insert({ ...newProductData, seller_id: user.id })
+      .insert({ ...newProductData, seller_id: user.id, image_url: null }) // Insert with null image_url initially
       .select();
 
-    if (error) {
-      showError(error.message);
-    } else if (data) {
-      setProducts((prev) => [...prev, data[0] as Product]);
-      showSuccess("Product added successfully!");
+    if (insertError) {
+      showError(insertError.message);
+      return;
     }
+
+    const newProductId = productInsertData[0].id;
+
+    // If an image file is provided, upload it and then update the product with the URL
+    if (imageFile && newProductId) {
+      const uploadedImageUrl = await uploadImage(imageFile, newProductId);
+      if (uploadedImageUrl) {
+        imageUrl = uploadedImageUrl;
+        const { error: updateError } = await supabase
+          .from('products')
+          .update({ image_url: imageUrl })
+          .eq('id', newProductId);
+
+        if (updateError) {
+          showError(`Failed to update product with image URL: ${updateError.message}`);
+          return;
+        }
+      }
+    }
+
+    // Refetch products to ensure the list is up-to-date with the new image URL
+    fetchProducts();
+    showSuccess("Product added successfully!");
   };
 
-  const handleUpdateProduct = async (updatedProductData: Omit<Product, 'id' | 'seller_id'>) => {
+  const handleUpdateProduct = async (updatedProductData: Omit<Product, 'id' | 'seller_id'>, imageFile: File | null) => {
     if (!editingProduct) return;
+
+    let imageUrl: string | undefined = updatedProductData.image_url;
+
+    if (imageFile) {
+      const uploadedImageUrl = await uploadImage(imageFile, editingProduct.id);
+      if (uploadedImageUrl) {
+        imageUrl = uploadedImageUrl;
+      } else {
+        // If upload failed, keep the existing image URL
+        imageUrl = editingProduct.image_url;
+      }
+    } else if (updatedProductData.image_url === '') {
+      // If image was cleared in the form and no new file was selected
+      imageUrl = undefined;
+    } else {
+      // No new file, retain existing URL
+      imageUrl = editingProduct.image_url;
+    }
+
     const { data, error } = await supabase
       .from('products')
-      .update(updatedProductData)
+      .update({ ...updatedProductData, image_url: imageUrl })
       .eq('id', editingProduct.id)
       .select();
 
@@ -133,7 +210,22 @@ const SellerDashboardPage = () => {
     }
   };
 
-  const handleDeleteProduct = async (productId: string) => {
+  const handleDeleteProduct = async (productId: string, imageUrl?: string) => {
+    // Optionally delete image from storage first
+    if (imageUrl) {
+      const filePath = imageUrl.split('/').pop(); // Extract filename from URL
+      if (filePath) {
+        const { error: deleteImageError } = await supabase.storage
+          .from('product-images')
+          .remove([`${user?.id}/${filePath}`]); // Assuming path structure seller_id/filename
+
+        if (deleteImageError) {
+          console.error("Failed to delete image from storage:", deleteImageError.message);
+          // Don't block product deletion if image deletion fails
+        }
+      }
+    }
+
     const { error } = await supabase
       .from('products')
       .delete()
@@ -233,7 +325,7 @@ const SellerDashboardPage = () => {
                           </AlertDialogHeader>
                           <AlertDialogFooter>
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => handleDeleteProduct(product.id)}>
+                            <AlertDialogAction onClick={() => handleDeleteProduct(product.id, product.image_url)}>
                               Delete
                             </AlertDialogAction>
                           </AlertDialogFooter>
