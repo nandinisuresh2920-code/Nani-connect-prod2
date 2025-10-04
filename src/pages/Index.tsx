@@ -9,8 +9,10 @@ const Index = () => {
 
   useEffect(() => {
     if (!loading) {
+      console.log('Index page: Auth loading finished. User:', user);
       if (user) {
         const userRole = user.user_metadata?.role;
+        console.log('Index page: User found, role:', userRole);
         if (userRole === 'seller') {
           navigate('/seller-dashboard');
         } else {
@@ -18,6 +20,7 @@ const Index = () => {
           navigate('/buyer-dashboard');
         }
       } else {
+        console.log('Index page: No user found, redirecting to login.');
         navigate('/login');
       }
     }

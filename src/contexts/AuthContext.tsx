@@ -29,6 +29,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
+        console.log('Auth state changed:', _event, 'Session:', session);
         setSession(session);
         setUser(session?.user as CustomUser || null);
         setLoading(false);
@@ -36,6 +37,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     );
 
     supabase.auth.getSession().then(({ data: { session } }) => {
+      console.log('Initial session check:', session);
       setSession(session);
       setUser(session?.user as CustomUser || null);
       setLoading(false);
@@ -50,9 +52,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       showError(error.message);
+      console.error('Sign-in error:', error);
       return { user: null, error };
     }
     showSuccess("Logged in successfully!");
+    console.log('Sign-in successful, user:', data.user);
     return { user: data.user as CustomUser, error: null };
   };
 
@@ -68,9 +72,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     });
     if (error) {
       showError(error.message);
+      console.error('Sign-up error:', error);
       return { user: null, error };
     }
     showSuccess("Signed up successfully! Please check your email to confirm your account.");
+    console.log('Sign-up successful, user:', data.user);
     return { user: data.user as CustomUser, error: null };
   };
 
@@ -78,9 +84,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const { error } = await supabase.auth.signOut();
     if (error) {
       showError(error.message);
+      console.error('Sign-out error:', error);
       return { error };
     }
     showSuccess("Logged out successfully!");
+    console.log('Sign-out successful');
     return { error: null };
   };
 

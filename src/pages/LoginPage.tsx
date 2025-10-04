@@ -20,6 +20,7 @@ const LoginPage = () => {
     if (isSigningUp) {
       const { user, error } = await signUpWithEmail(email, password, role);
       if (user && !error) {
+        console.log('Signup successful in LoginPage, user role:', role);
         // Redirect based on role after successful signup
         if (role === 'seller') {
           navigate('/seller-dashboard');
@@ -30,13 +31,16 @@ const LoginPage = () => {
     } else {
       const { user, error } = await signInWithEmail(email, password);
       if (user && !error) {
-        // Redirect based on role after successful signin
         const userRole = user.user_metadata?.role;
+        console.log('Signin successful in LoginPage, user role from metadata:', userRole);
+        // Redirect based on role after successful signin
         if (userRole === 'seller') {
           navigate('/seller-dashboard');
         } else {
           navigate('/buyer-dashboard');
         }
+      } else {
+        console.log('Signin failed or user is null in LoginPage.');
       }
     }
   };
